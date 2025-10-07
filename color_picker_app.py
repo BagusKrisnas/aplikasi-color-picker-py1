@@ -6,7 +6,7 @@ import io
 
 # --- Konfigurasi Halaman & Styling (CSS) ---
 
-st.set_page_config(layout="wide", page_title="Color Inspector")
+st.set_page_config(layout="wide", page_title="Color Picker", page_icon="🎨")
 
 def local_css():
     st.markdown("""
@@ -159,7 +159,7 @@ if st.session_state.view_mode == 'fullscreen_grid':
 
 # Tampilan Default
 elif st.session_state.view_mode == 'default':
-    st.title("🎨 Color Inspector (RGB/HEX)")
+    st.title("🎨 Color Picker")
     st.write("Unggah gambar -> klik titik untuk melihat detail warna -> lihat grid -> unduh CSV.")
     st.divider()
 
