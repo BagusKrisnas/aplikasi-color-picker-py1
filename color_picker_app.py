@@ -6,7 +6,7 @@ import io
 
 # --- Konfigurasi Halaman & Styling (CSS) ---
 
-st.set_page_config(layout="wide", page_title="Inspector Warna")
+st.set_page_config(layout="wide", page_title="Color Inspector")
 
 def local_css():
     st.markdown("""
@@ -136,10 +136,8 @@ if 'last_color_info' not in st.session_state:
     st.session_state.last_color_info = None
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
-# State baru untuk mengatur mode tampilan
 if 'view_mode' not in st.session_state:
     st.session_state.view_mode = 'default'
-# State untuk menyimpan data yang dibutuhkan oleh mode fullscreen
 if 'fullscreen_data' not in st.session_state:
     st.session_state.fullscreen_data = None
 
@@ -151,19 +149,17 @@ if st.session_state.view_mode == 'fullscreen_grid':
     st.title("Tampilan Penuh - Grid Sampel Warna")
     if st.button("⬅️ Kembali ke Tampilan Utama"):
         st.session_state.view_mode = 'default'
-        st.rerun()
+        st.rerun() # Menggunakan rerun di sini aman
     
-    # Ambil data dari session state dan tampilkan
     if st.session_state.fullscreen_data:
         html_table_fullscreen = create_html_table(st.session_state.fullscreen_data, st.session_state.search_query)
-        # Jangan batasi tinggi/scroll di mode fullscreen
         st.markdown(html_table_fullscreen, unsafe_allow_html=True)
     else:
         st.warning("Tidak ada data grid untuk ditampilkan. Silakan kembali dan unggah gambar.")
 
 # Tampilan Default
 elif st.session_state.view_mode == 'default':
-    st.title("Inspektor Warna")
+    st.title("🎨 Color Inspector (RGB/HEX)")
     st.write("Unggah gambar -> klik titik untuk melihat detail warna -> lihat grid -> unduh CSV.")
     st.divider()
 
@@ -179,14 +175,15 @@ elif st.session_state.view_mode == 'default':
 
         with main_col1:
             st.header("Ambil Warna per Titik", anchor=False)
-            MAX_WIDTH = 800
-            if image.width > MAX_WIDTH:
-                aspect_ratio = image.height / image.width
-                new_height = int(MAX_WIDTH * aspect_ratio)
-                display_image = image.resize((MAX_WIDTH, new_height))
-            else:
-                display_image = image
             
+            # --- PERBAIKAN UTAMA DI SINI ---
+            MAX_WIDTH = 800
+            # Hitung tinggi baru secara proporsional
+            aspect_ratio = image.height / image.width
+            new_height = int(MAX_WIDTH * aspect_ratio)
+            # Selalu resize gambar yang akan ditampilkan ke lebar maksimum yang konsisten
+            display_image = image.resize((MAX_WIDTH, new_height))
+
             from streamlit_image_coordinates import streamlit_image_coordinates
             value = streamlit_image_coordinates(display_image, key="img_picker")
 
@@ -229,7 +226,6 @@ elif st.session_state.view_mode == 'default':
             grid_data_2d = create_color_grid(image, cols=grid_cols_slider, rows=grid_cols_slider)
             flat_grid_data = [item for sublist in grid_data_2d for item in sublist]
             
-            # Simpan data grid ke session state untuk diakses mode fullscreen
             st.session_state.fullscreen_data = grid_data_2d
 
             st.markdown('<div class="grid-header">', unsafe_allow_html=True)
@@ -249,7 +245,7 @@ elif st.session_state.view_mode == 'default':
             with b_col3:
                 if st.button("⛶", help="Tampilan Penuh", use_container_width=True):
                     st.session_state.view_mode = 'fullscreen_grid'
-                    st.rerun()
+                    st.rerun() # Menggunakan rerun di sini juga aman
             
             st.markdown('</div>', unsafe_allow_html=True)
             
