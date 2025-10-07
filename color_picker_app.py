@@ -1,204 +1,260 @@
 import streamlit as st
 from PIL import Image
-import colorsys
-from streamlit_image_coordinates import streamlit_image_coordinates
+import numpy as np
+import pandas as pd
+import io
 
 # --- Konfigurasi Halaman & Styling (CSS) ---
 
-# Mengatur konfigurasi halaman agar lebih lebar dan memberikan judul pada tab browser
-st.set_page_config(layout="wide", page_title="Advanced Color Picker")
+st.set_page_config(layout="wide", page_title="Inspector Warna")
 
-# Fungsi untuk menyuntikkan CSS kustom ke dalam aplikasi Streamlit
 def local_css():
     st.markdown("""
     <style>
-    /* Menghilangkan padding bawaan streamlit */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-    
-    /* Background utama halaman */
+    /* ... (CSS dari versi sebelumnya tetap sama) ... */
     body {
-        background: linear-gradient(to right, #6a82fb, #fc5c7d);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+        background-color: #1E1E1E; color: #EAEAEA;
     }
-    
-    /* Kontainer utama aplikasi yang berwarna putih dengan bayangan */
-    .main-container {
-        background-color: #ffffff;
-        padding: 2rem;
-        border-radius: 15px;
-        box-shadow: 0 4px B20px rgba(0, 0, 0, 0.1);
-        margin-top: 2rem;
+    .stApp { background-color: #1E1E1E; }
+    .block-container { padding: 2rem 4rem; }
+    h1 { font-size: 2.5rem; font-weight: 700; }
+    h2 { font-weight: 600; }
+    .stFileUploader > div { border: 2px dashed #444; background-color: #2E2E2E; padding: 2rem; border-radius: 10px; }
+    .color-box {
+        background-color: #2E2E2E; padding: 1.5rem; border-radius: 10px;
+        border-left: 8px solid var(--swatch-color, #555);
     }
-    
-    /* Header aplikasi dengan latar belakang gelap */
-    .app-header {
-        background-color: #2c3e50;
-        color: white;
-        padding: 1rem;
-        border-radius: 10px 10px 0 0;
-        text-align: center;
+    .color-box p { margin-bottom: 0.5rem; font-size: 1.1rem; }
+    .color-box .hex-code {
+        background-color: #444; padding: 0.5rem 1rem; border-radius: 5px;
+        font-family: monospace; font-weight: 600; display: inline-block;
     }
-    .app-header h1 {
-        margin: 0;
-        font-size: 24px;
-    }
-    .app-header p {
-        margin: 5px 0 0 0;
-        font-size: 14px;
-        color: #bdc3c7;
-    }
+    div[data-testid="stImage"] img { cursor: crosshair; }
+    .stButton>button { border-radius: 5px; }
 
-    /* Styling untuk tombol */
-    .stButton>button {
+    .grid-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+    .grid-header h2 {
+        margin: 0;
+    }
+    .grid-header .icon-buttons button {
+        background-color: #333;
+        border: 1px solid #555;
+        color: #EAEAEA;
+        margin-left: 5px;
+        width: 40px;
+        height: 40px;
+    }
+    .scrollable-grid-container {
+        max-height: 400px;
+        overflow: auto;
+        border: 1px solid #444;
+        border-radius: 8px;
+        background-color: #2E2E2E;
+    }
+    .color-grid-table {
+        border-collapse: collapse;
         width: 100%;
-        border-radius: 5px;
+        table-layout: fixed;
     }
-    /* Styling khusus untuk tombol "Hapus Semua" */
-    .stButton>button[kind="primary"] {
-        background-color: #e74c3c;
-        border: none;
+    .color-grid-table th, .color-grid-table td {
+        border: 1px solid #444;
+        padding: 8px;
+        text-align: center;
+        width: 90px;
+        height: 40px;
+        font-family: monospace;
+        font-size: 0.8rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
-    
-    /* Mengubah kursor menjadi crosshair saat diarahkan ke gambar */
-    div[data-testid="stImage"] img {
-        cursor: crosshair;
+    .color-grid-table th {
+        background-color: #1E1E1E;
+        position: sticky;
+        top: -1px;
+        left: -1px;
+        z-index: 10;
     }
-    
+    .color-grid-table td.highlight {
+        border: 2px solid #00A2FF;
+        box-shadow: 0 0 10px #00A2FF;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# Memanggil fungsi CSS agar styling diterapkan
 local_css()
 
-# --- Fungsi Bantuan (Helper Functions) ---
+# --- Fungsi Bantuan ---
 
 def rgb_to_hex(rgb):
-    """Mengubah tuple RGB menjadi kode warna HEX."""
-    return '#%02x%02x%02x' % rgb
+    return '#{:02x}{:02x}{:02x}'.format(rgb[0], rgb[1], rgb[2]).upper()
 
-def rgb_to_hsl(rgb):
-    """Mengubah tuple RGB (0-255) menjadi HSL (H:0-360, S:0-100, L:0-100)."""
-    r, g, b = [x / 255.0 for x in rgb]
-    h, l, s = colorsys.rgb_to_hls(r, g, b)
-    # Mengembalikan nilai dalam format yang mudah dibaca
-    return (int(h * 360), int(s * 100), int(l * 100))
+def calculate_average_color(img):
+    np_img = np.array(img)
+    avg_color = np_img.mean(axis=(0, 1))
+    return tuple(int(c) for c in avg_color)
+
+def create_color_grid(img, cols=10, rows=10):
+    width, height = img.size
+    grid_data = []
+    x_step = width / cols
+    y_step = height / rows
+    for i in range(rows):
+        row_list = []
+        for j in range(cols):
+            x = min(int(j * x_step + x_step / 2), width - 1)
+            y = min(int(i * y_step + y_step / 2), height - 1)
+            rgb_val = img.getpixel((x, y))
+            row_list.append({"x": x, "y": y, "rgb": rgb_val, "hex": rgb_to_hex(rgb_val)})
+        grid_data.append(row_list)
+    return grid_data
+
+def create_html_table(data_2d, search_term=""):
+    if not data_2d or not data_2d[0]: # Pemeriksaan keamanan jika data kosong
+        return "Tidak ada data untuk ditampilkan."
+    html = '<table class="color-grid-table">'
+    html += '<thead><tr><th>(y,x)</th>'
+    for item in data_2d[0]: html += f"<th>{item['x']}</th>"
+    html += '</tr></thead><tbody>'
+    for row in data_2d:
+        html += f"<tr><th>{row[0]['y']}</th>"
+        for item in row:
+            text_color = "#FFFFFF" if (item['rgb'][0]*0.299 + item['rgb'][1]*0.587 + item['rgb'][2]*0.114) < 128 else "#000000"
+            highlight_class = "highlight" if search_term and search_term in item['hex'] else ""
+            html += f"<td class='{highlight_class}' style='background-color:{item['hex']}; color:{text_color};' title='RGB: {item['rgb']}'>{item['hex']}</td>"
+        html += '</tr>'
+    html += '</tbody></table>'
+    return html
 
 # --- Inisialisasi State Aplikasi ---
+if 'last_color_info' not in st.session_state:
+    st.session_state.last_color_info = None
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ""
+# State baru untuk mengatur mode tampilan
+if 'view_mode' not in st.session_state:
+    st.session_state.view_mode = 'default'
+# State untuk menyimpan data yang dibutuhkan oleh mode fullscreen
+if 'fullscreen_data' not in st.session_state:
+    st.session_state.fullscreen_data = None
 
-# st.session_state digunakan untuk menyimpan data agar tidak hilang saat terjadi interaksi
-# Inisialisasi daftar kosong untuk menyimpan warna jika belum ada
-if 'selected_colors' not in st.session_state:
-    st.session_state.selected_colors = []
-# Inisialisasi state untuk menyimpan posisi klik terakhir
-if 'last_click' not in st.session_state:
-    st.session_state.last_click = None
 
-# --- UI (User Interface) Aplikasi ---
+# --- Logika Utama Aplikasi ---
 
-# Bungkus semua elemen dalam satu div agar bisa menerapkan styling dari .main-container
-with st.container():
-    st.markdown('<div class="main-container">', unsafe_allow_html=True)
+# Tampilan Fullscreen
+if st.session_state.view_mode == 'fullscreen_grid':
+    st.title("Tampilan Penuh - Grid Sampel Warna")
+    if st.button("⬅️ Kembali ke Tampilan Utama"):
+        st.session_state.view_mode = 'default'
+        st.rerun()
     
-    # Bagian Header Aplikasi
-    st.markdown("""
-    <div class="app-header">
-        <h1>Color Picker</h1>
-        <p>Unggah dan klik pada gambar untuk memilih kode warna</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Ambil data dari session state dan tampilkan
+    if st.session_state.fullscreen_data:
+        html_table_fullscreen = create_html_table(st.session_state.fullscreen_data, st.session_state.search_query)
+        # Jangan batasi tinggi/scroll di mode fullscreen
+        st.markdown(html_table_fullscreen, unsafe_allow_html=True)
+    else:
+        st.warning("Tidak ada data grid untuk ditampilkan. Silakan kembali dan unggah gambar.")
 
-    # Membagi layout utama menjadi dua kolom
-    col1, col2 = st.columns([1, 1])
+# Tampilan Default
+elif st.session_state.view_mode == 'default':
+    st.title("Inspektor Warna")
+    st.write("Unggah gambar -> klik titik untuk melihat detail warna -> lihat grid -> unduh CSV.")
+    st.divider()
 
-    # --- KOLOM KIRI (Upload dan Tampilan Gambar) ---
-    with col1:
-        st.subheader("Pilih Gambar", anchor=False)
-        uploaded_file = st.file_uploader(
-            "Klik untuk memilih gambar dari komputer Anda", 
-            type=["jpg", "jpeg", "png"], 
-            label_visibility="collapsed"
-        )
+    uploaded_file = st.file_uploader("Tarik & letakkan gambar (PNG/JPG/JPEG) di sini", type=["png", "jpg", "jpeg"])
 
-        if uploaded_file is not None:
-            image = Image.open(uploaded_file)
-            # Konversi gambar ke mode RGB untuk konsistensi
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file).convert('RGB')
+        
+        st.info(f"File: **{uploaded_file.name}** | Dimensi Asli: **{image.width}x{image.height}px**")
+        st.divider()
+
+        main_col1, main_col2 = st.columns([2, 1])
+
+        with main_col1:
+            st.header("Ambil Warna per Titik", anchor=False)
+            MAX_WIDTH = 800
+            if image.width > MAX_WIDTH:
+                aspect_ratio = image.height / image.width
+                new_height = int(MAX_WIDTH * aspect_ratio)
+                display_image = image.resize((MAX_WIDTH, new_height))
+            else:
+                display_image = image
             
-            # Menampilkan gambar dan menangkap koordinat saat diklik
-            value = streamlit_image_coordinates(image, key="img_picker")
+            from streamlit_image_coordinates import streamlit_image_coordinates
+            value = streamlit_image_coordinates(display_image, key="img_picker")
 
-            # Logika untuk menambahkan warna baru ke dalam tabel saat ada klik baru
-            if value and value != st.session_state.last_click:
-                st.session_state.last_click = value
-                x, y = value['x'], value['y']
-                
-                rgb = image.getpixel((x, y))
+            if value:
+                scale_factor = image.width / display_image.width
+                original_x = int(value['x'] * scale_factor)
+                original_y = int(value['y'] * scale_factor)
+                rgb = image.getpixel((original_x, original_y))
                 hex_val = rgb_to_hex(rgb)
-                hsl = rgb_to_hsl(rgb)
+                st.session_state.last_color_info = {
+                    "coord": f"({original_x}, {original_y})", "rgb": rgb, "hex": hex_val
+                }
                 
-                # Menambahkan data warna baru ke dalam session_state
-                st.session_state.selected_colors.append({
-                    "coord": f"({x}, {y})",
-                    "rgb": rgb,
-                    "hex": hex_val,
-                    "hsl": hsl,
-                })
-        else:
-            # Placeholder yang tampil saat belum ada gambar yang diunggah
-            st.markdown("""
-            <div style="height: 300px; border: 2px dashed #bdc3c7; border-radius: 10px; display: flex; justify-content: center; align-items: center; color: #7f8c8d;">
-                Area gambar akan muncul di sini
+            st.header("Warna Titik Terpilih", anchor=False)
+            if st.session_state.last_color_info:
+                color_data = st.session_state.last_color_info
+                st.markdown(f"""
+                <div class="color-box" style="--swatch-color: {color_data['hex']};">
+                    <p>Koordinat: <strong>{color_data['coord']}</strong></p>
+                    <p>RGB: <strong>{color_data['rgb']}</strong> | HEX: <strong>{color_data['hex']}</strong></p>
+                    <div class="hex-code">{color_data['hex']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("Klik pada gambar untuk melihat detail warna di sini.")
+
+            st.header("Rata-rata Warna Gambar", anchor=False)
+            avg_rgb = calculate_average_color(image)
+            avg_hex = rgb_to_hex(avg_rgb)
+            st.markdown(f"""
+            <div class="color-box" style="--swatch-color: {avg_hex};">
+                <p>RGB: <strong>{avg_rgb}</strong> | HEX: <strong>{avg_hex}</strong></p>
+                <div class="hex-code">{avg_hex}</div>
             </div>
             """, unsafe_allow_html=True)
 
-    # --- KOLOM KANAN (Tabel Warna yang Dipilih) ---
-    with col2:
-        st.subheader("Tabel Warna yang Telah Dipilih", anchor=False)
-        
-        # Membuat Header Tabel secara manual menggunakan kolom
-        header_cols = st.columns([0.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
-        headers = ["No", "Warna", "Koordinat", "RGB", "HEX", "HSL", "Aksi"]
-        for col, header in zip(header_cols, headers):
-            col.markdown(f"**{header}**")
-        
-        st.divider() # Garis pemisah antara header dan data
+        with main_col2:
+            grid_cols_slider = st.slider("Kepadatan Grid (Kolom)", min_value=5, max_value=200, value=15)
+            
+            grid_data_2d = create_color_grid(image, cols=grid_cols_slider, rows=grid_cols_slider)
+            flat_grid_data = [item for sublist in grid_data_2d for item in sublist]
+            
+            # Simpan data grid ke session state untuk diakses mode fullscreen
+            st.session_state.fullscreen_data = grid_data_2d
 
-        # Menampilkan data warna jika ada, atau pesan informasi jika kosong
-        if not st.session_state.selected_colors:
-            st.info("Belum ada warna yang dipilih. Klik pada gambar untuk menambahkan warna.")
-        else:
-            # Melakukan iterasi untuk setiap warna yang tersimpan dan menampilkannya dalam baris
-            for i, color_data in enumerate(st.session_state.selected_colors):
-                row_cols = st.columns([0.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
-                
-                # Kolom Nomor Urut
-                row_cols[0].write(f"{i + 1}")
-                
-                # Kolom Swatch Warna (menggunakan HTML untuk membuat kotak berwarna)
-                row_cols[1].markdown(
-                    f'<div style="width:100%; height:25px; background-color:{color_data["hex"]}; border: 1px solid #ddd; border-radius: 3px;"></div>',
-                    unsafe_allow_html=True
-                )
-                
-                # Kolom data warna lainnya
-                row_cols[2].text(color_data["coord"])
-                row_cols[3].text(f"{color_data['rgb']}")
-                row_cols[4].text(color_data["hex"])
-                row_cols[5].text(f"{color_data['hsl']}")
+            st.markdown('<div class="grid-header">', unsafe_allow_html=True)
+            st.subheader("Grid Sampel Warna", anchor=False)
+            
+            b_col1, b_col2, b_col3 = st.columns(3)
+            with b_col1:
+                df = pd.DataFrame(flat_grid_data)
+                df[['R', 'G', 'B']] = pd.DataFrame(df['rgb'].tolist(), index=df.index)
+                csv = df[['x', 'y', 'R', 'G', 'B', 'hex']].to_csv(index=False).encode('utf-8')
+                st.download_button(label="📥", data=csv, 
+                                   file_name=f"color_grid_{uploaded_file.name.split('.')[0]}.csv", 
+                                   mime='text/csv', help="Unduh data grid sebagai CSV", use_container_width=True)
+            with b_col2:
+                with st.popover("🔍", help="Cari warna HEX"):
+                    st.session_state.search_query = st.text_input("Masukkan kode HEX:", value=st.session_state.search_query).upper()
+            with b_col3:
+                if st.button("⛶", help="Tampilan Penuh", use_container_width=True):
+                    st.session_state.view_mode = 'fullscreen_grid'
+                    st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            html_table_main = create_html_table(grid_data_2d, st.session_state.search_query)
+            st.markdown(f'<div class="scrollable-grid-container">{html_table_main}</div>', unsafe_allow_html=True)
 
-                # Kolom Tombol Hapus per baris, dengan key unik agar tidak bentrok
-                if row_cols[6].button("🗑️", key=f"del_{i}", help="Hapus warna ini"):
-                    st.session_state.selected_colors.pop(i) # Hapus item dari list
-                    st.rerun() # Muat ulang aplikasi untuk memperbarui tampilan
-
-        # Menampilkan tombol "Hapus Semua" hanya jika ada warna yang dipilih
-        if st.session_state.selected_colors:
-            if st.button("Hapus Semua", type="primary"):
-                st.session_state.selected_colors.clear() # Kosongkan list
-                st.rerun() # Muat ulang aplikasi
-
-    # Tag penutup untuk div .main-container
-    st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.info("☝️ Silakan mulai dengan mengunggah sebuah gambar.")
